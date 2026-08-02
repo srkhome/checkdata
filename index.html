@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>平板使用時間登記系統</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0284c7',
+                            600: '#0369a1',
+                            700: '#075985',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800 font-sans pb-12">
+
+    <!-- Header -->
+    <header class="bg-brand-600 text-white shadow-lg sticky top-0 z-30">
+        <div class="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <i class="fa-solid font-bold fa-tablet-screen-button text-2xl"></i>
+                <h1 class="text-xl font-bold tracking-wide">平板使用登記系統</h1>
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="toggleTroubleshootModal()" class="px-3 py-1.5 bg-brand-700/80 hover:bg-brand-700 text-xs rounded-lg transition flex items-center gap-1.5" title="連線問題排查">
+                    <i class="fa-solid fa-circle-question text-amber-300"></i> API 設定說明
+                </button>
+                <button onclick="openSettingsModal()" class="p-2 hover:bg-brand-700 rounded-full transition" title="設定資料庫 API">
+                    <i class="fa-solid fa-gear text-lg"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-4xl mx-auto px-4 mt-6">
+
+        <!-- Connection / API Status Warning -->
+        <div id="apiWarning" class="hidden mb-6 p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl shadow-sm">
+            <div class="flex items-start justify-between">
+                <div class="flex items-start space-x-3">
+                    <i class="fa-solid fa-triangle-exclamation text-amber-600 text-xl mt-0.5"></i>
+                    <div>
+                        <p class="font-bold text-amber-800" id="apiWarningTitle">無法連線至 Google 試算表 API</p>
+                        <p class="text-sm text-amber-700 mt-1" id="apiWarningMsg">目前已自動切換至「本機暫存模式」。資料仍可正常新增與歸還，待 API 恢復連線後重新同步。</p>
+                        <div class="mt-2 text-xs text-amber-900 bg-amber-100/70 p-2.5 rounded-lg border border-amber-200">
+                            <strong>常見連線失敗原因：</strong><br>
+                            1. Apps Script 部署時「誰有權存取」未設為 <strong>「所有人 (Anyone)」</strong>。<br>
+                            2. 瀏覽器阻擋了跨網域請求 (CORS)。
+                        </div>
+                    </div>
+                </div>
+                <button onclick="toggleTroubleshootModal()" class="px-3 py-1.5 bg-amber-600 text-white text-xs rounded-lg font-medium hover:bg-amber-700 whitespace-nowrap">排查步驟</button>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200 mb-6">
+            <button id="tabBorrow" onclick="switchTab('borrow')" class="flex-1 py-3 font-semibold rounded-lg text-brand-600 bg-brand-50 transition flex justify-center items-center gap-2">
+                <i class="fa-solid fa-hand-holding-hand"></i> 開始登記 (借出)
+            </button>
+            <button id="tabActive" onclick="switchTab('active')" class="flex-1 py-3 font-semibold rounded-lg text-slate-500 hover:text-slate-700 transition flex justify-center items-center gap-2 relative">
+                <i class="fa-solid fa-clock-rotate-left"></i> 使用中平板 
+                <span id="activeBadge" class="hidden bg-rose-500 text-white text-xs px-2 py-0.5 rounded-full font-bold">0</span>
+            </button>
+            <button id="tabHistory" onclick="switchTab('history')" class="flex-1 py-3 font-semibold rounded-lg text-slate-500 hover:text-slate-700 transition flex justify-center items-center gap-2">
+                <i class="fa-solid fa-list-check"></i> 全部紀錄
+            </button>
+        </div>
+
+        <!-- 1. Borrow Form View -->
+        <section id="viewBorrow" class="space-y-6">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <h2 class="text-lg font-bold text-slate-800 mb-4 border-b pb-2 flex items-center gap-2">
+                    <i class="fa-solid fa-pen-to-square text-brand-500"></i> 新增平板借用登記
+                </h2>
+
+                <form id="borrowForm" onsubmit="handleBorrowSubmit(event)" class="space-y-5">
+                    
+                    <!-- Borrower Name -->
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-700 mb-1">登記人/學生姓名 <span class="text-rose-500">*</span></label>
+                        <input type="text" id="userName" required value="蔡維宬" placeholder="請輸入姓名" class="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+                    </div>
+
+                    <!-- Equipment Selection -->
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">使用裝備 <span class="text-rose-500">*</span></label>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                            <label class="tablet-card flex items-center p-3 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition">
+                                <input type="radio" name="tabletPreset" value="手機" checked onchange="toggleTabletCustom()" class="w-4 h-4 text-brand-600 border-slate-300 focus:ring-brand-500">
+                                <span class="ml-2 font-medium text-slate-700">📱 手機</span>
+                            </label>
+                            <label class="tablet-card flex items-center p-3 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition">
+                                <input type="radio" name="tabletPreset" value="平板" onchange="toggleTabletCustom()" class="w-4 h-4 text-brand-600 border-slate-300 focus:ring-brand-500">
+                                <span class="ml-2 font-medium text-slate-700">💻 平板</span>
+                            </label>
+                            <label class="tablet-card flex items-center p-3 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition">
+                                <input type="radio" name="tabletPreset" value="電視" onchange="toggleTabletCustom()" class="w-4 h-4 text-brand-600 border-slate-300 focus:ring-brand-500">
+                                <span class="ml-2 font-medium text-slate-700">📺 電視</span>
+                            </label>
+                            <label class="tablet-card flex items-center p-3 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition">
+                                <input type="radio" name="tabletPreset" value="其他" onchange="toggleTabletCustom()" class="w-4 h-4 text-brand-600 border-slate-300 focus:ring-brand-500">
+                                <span class="ml-2 font-medium text-slate-700">✏️ 其他</span>
+                            </label>
+                        </div>
+                        <div id="customTabletContainer" class="hidden mt-3">
+                            <input type="text" id="customTabletId" placeholder="請填寫其他裝備名稱" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none">
+                        </div>
+                    </div>
+
+                    <!-- Usage Purpose -->
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">登記用途 <span class="text-rose-500">*</span></label>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                            <label class="purpose-card flex items-center p-3 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition">
+                                <input type="radio" name="purpose" value="休閒玩遊戲" checked onchange="toggleCustomReason()" class="w-4 h-4 text-brand-600 border-slate-300 focus:ring-brand-500">
+                                <span class="ml-2 font-medium text-slate-700">🎮 休閒玩遊戲</span>
+                            </label>
+                            <label class="purpose-card flex items-center p-3 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition">
+                                <input type="radio" name="purpose" value="看影片" onchange="toggleCustomReason()" class="w-4 h-4 text-brand-600 border-slate-300 focus:ring-brand-500">
+                                <span class="ml-2 font-medium text-slate-700">🎬 看影片</span>
+                            </label>
+                            <label class="purpose-card flex items-center p-3 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition">
+                                <input type="radio" name="purpose" value="閱讀認證" onchange="toggleCustomReason()" class="w-4 h-4 text-brand-600 border-slate-300 focus:ring-brand-500">
+                                <span class="ml-2 font-medium text-slate-700">📖 閱讀認證</span>
+                            </label>
+                            <label class="purpose-card flex items-center p-3 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition">
+                                <input type="radio" name="purpose" value="其他" onchange="toggleCustomReason()" class="w-4 h-4 text-brand-600 border-slate-300 focus:ring-brand-500">
+                                <span class="ml-2 font-medium text-slate-700">✏️ 其他原因</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Custom Reason Input -->
+                    <div id="customReasonContainer" class="hidden bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <label class="block text-sm font-semibold text-slate-700 mb-1">請註明其他用途原因 <span class="text-rose-500">*</span></label>
+                        <input type="text" id="customReason" placeholder="例如：自主學習、簡報製作..." class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none">
+                    </div>
+
+                    <!-- Start Time Option -->
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                        <label class="block text-sm font-semibold text-slate-700">開始使用時間登記方式</label>
+                        <div class="flex gap-4">
+                            <label class="flex items-center cursor-pointer">
+                                <input type="radio" name="startTimeType" value="auto" checked onchange="toggleStartTimeInput()" class="w-4 h-4 text-brand-600 focus:ring-brand-500">
+                                <span class="ml-2 text-sm font-medium text-slate-700">⚡ 自動寫入當前時間</span>
+                            </label>
+                            <label class="flex items-center cursor-pointer">
+                                <input type="radio" name="startTimeType" value="manual" onchange="toggleStartTimeInput()" class="w-4 h-4 text-brand-600 focus:ring-brand-500">
+                                <span class="ml-2 text-sm font-medium text-slate-700">✏️ 手動選擇時間</span>
+                            </label>
+                        </div>
+                        <div id="manualStartTimeContainer" class="hidden pt-2">
+                            <input type="datetime-local" id="manualStartTime" class="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none text-slate-700">
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button type="submit" id="submitBorrowBtn" class="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl shadow-md transition flex justify-center items-center gap-2">
+                        <i class="fa-solid fa-check"></i> 確認借出並登記
+                    </button>
+                </form>
+            </div>
+        </section>
+
+        <!-- 2. Active Borrows View -->
+        <section id="viewActive" class="hidden space-y-4">
+            <div class="flex justify-between items-center mb-2">
+                <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-circle-play text-emerald-500"></i> 使用中平板列表
+                </h2>
+                <button onclick="fetchData()" class="text-sm px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition flex items-center gap-1.5 shadow-sm">
+                    <i class="fa-solid fa-rotate"></i> 手動同步
+                </button>
+            </div>
+
+            <div id="activeList" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Dynamic Content Loaded Here -->
+            </div>
+        </section>
+
+        <!-- 3. All History View -->
+        <section id="viewHistory" class="hidden space-y-6">
+            <!-- Week Selector Header -->
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-calendar-week text-brand-600 text-xl"></i>
+                    <div>
+                        <h2 class="text-base font-bold text-slate-800">選擇檢視週次 (週日至週六)</h2>
+                        <p id="selectedWeekRangeText" class="text-xs text-slate-500 font-medium mt-0.5">顯示範圍：----/--/-- ~ ----/--/--</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button onclick="changeWeek(-1)" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold rounded-lg transition flex items-center gap-1">
+                        <i class="fa-solid fa-chevron-left text-xs"></i> 上一週
+                    </button>
+                    <input type="date" id="weekPicker" onchange="onWeekPickerChange(event)" class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-brand-500 outline-none">
+                    <button onclick="changeWeek(1)" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold rounded-lg transition flex items-center gap-1">
+                        下一週 <i class="fa-solid fa-chevron-right text-xs"></i>
+                    </button>
+                    <button onclick="resetToCurrentWeek()" class="px-3 py-1.5 bg-brand-50 text-brand-600 hover:bg-brand-100 text-sm font-semibold rounded-lg transition border border-brand-100">
+                        本週
+                    </button>
+                </div>
+            </div>
+
+            <!-- Chart Section -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                        <i class="fa-solid fa-chart-column text-brand-500"></i> 本週每日總使用時間分析 (分鐘)
+                    </h3>
+                    <span id="weekTotalTimeText" class="text-sm font-semibold text-brand-600 bg-brand-50 px-3 py-1 rounded-full border border-brand-100">總計：0 分鐘</span>
+                </div>
+                <div class="relative w-full h-64 md:h-80">
+                    <canvas id="usageChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Table Section -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                    <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-list-check text-slate-500"></i> 該週詳細借還紀錄
+                    </h3>
+                    <button onclick="fetchData()" class="text-xs px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition flex items-center gap-1 shadow-sm">
+                        <i class="fa-solid fa-rotate"></i> 重新整理
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50/50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                <th class="p-4">裝備名稱</th>
+                                <th class="p-4">借用人</th>
+                                <th class="p-4">用途</th>
+                                <th class="p-4">開始時間</th>
+                                <th class="p-4">歸還時間</th>
+                                <th class="p-4">使用時長</th>
+                                <th class="p-4">狀態</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTableBody" class="divide-y divide-slate-100 text-sm">
+                            <!-- Dynamic Content Loaded Here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal: Return Tablet -->
+    <div id="returnModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-5">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800">登記歸還平板</h3>
+                    <p class="text-sm text-slate-500" id="returnModalSubtitle">平板名稱：--</p>
+                </div>
+                <button onclick="closeReturnModal()" class="text-slate-400 hover:text-slate-600">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
+
+            <div class="space-y-4">
+                <div class="bg-slate-50 p-3 rounded-lg text-sm text-slate-600 space-y-1">
+                    <div>借用對象：<span id="returnModalBorrower" class="font-semibold text-slate-800">--</span></div>
+                    <div>借出時間：<span id="returnModalStartTime" class="font-semibold text-slate-800">--</span></div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">歸還時間登記方式</label>
+                    <div class="space-y-2">
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="endTimeType" value="auto" checked onchange="toggleEndTimeInput()" class="w-4 h-4 text-brand-600">
+                            <span class="ml-2 text-sm font-medium text-slate-700">⚡ 自動寫入當前時間</span>
+                        </label>
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="endTimeType" value="manual" onchange="toggleEndTimeInput()" class="w-4 h-4 text-brand-600">
+                            <span class="ml-2 text-sm font-medium text-slate-700">✏️ 手動選擇歸還時間</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="manualEndTimeContainer" class="hidden">
+                    <input type="datetime-local" id="manualEndTime" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none text-slate-700">
+                </div>
+            </div>
+
+            <div class="flex gap-3 pt-2">
+                <button onclick="closeReturnModal()" class="flex-1 py-2.5 border border-slate-300 text-slate-600 font-semibold rounded-xl hover:bg-slate-50 transition">取消</button>
+                <button onclick="confirmReturn()" id="confirmReturnBtn" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-md transition">確認歸還</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Settings API URL -->
+    <div id="settingsModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4">
+            <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-gears text-brand-500"></i> 設定 Google 試算表 API
+            </h3>
+            <p class="text-sm text-slate-500">請貼上您部署 Google Apps Script 後獲得的 Web App URL 網址。</p>
+            
+            <div>
+                <label class="block text-sm font-semibold text-slate-700 mb-1">Web App URL</label>
+                <input type="url" id="apiUrlInput" placeholder="https://script.google.com/macros/s/.../exec" class="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none">
+            </div>
+
+            <div class="flex gap-3 pt-2">
+                <button onclick="closeSettingsModal()" class="flex-1 py-2.5 border border-slate-300 text-slate-600 font-semibold rounded-xl hover:bg-slate-50 transition">取消</button>
+                <button onclick="saveApiUrl()" class="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl shadow-md transition">儲存設定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Troubleshooting Instructions -->
+    <div id="troubleshootModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-screwdriver-wrench text-amber-500"></i> Failed to Fetch 解決指南
+                </h3>
+                <button onclick="toggleTroubleshootModal()" class="text-slate-400 hover:text-slate-600">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-3 text-sm text-slate-700">
+                <p>當出現 <code>TypeError: Failed to fetch</code> 時，通常為 Google Apps Script 部署權限設定問題。請按以下步驟確認：</p>
+
+                <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
+                    <p class="font-bold text-brand-700">📍 正確的 Apps Script 部署步驟：</p>
+                    <ol class="list-decimal pl-5 space-y-1.5 text-xs text-slate-600">
+                        <li>在 Google Apps Script 編輯器右上角點擊 <strong>「部署」 (Deploy) ➔ 「新增部署」</strong>。</li>
+                        <li>選擇類型為 <strong>「網頁應用程式」 (Web App)</strong>。</li>
+                        <li><strong>執行身分 (Execute as)</strong>：選擇 <code>我自己 (Me)</code>。</li>
+                        <li><strong>誰有權存取 (Who has access)</strong>：務必選擇 <strong><code>所有人 (Anyone)</code></strong> 👈（這非常重要，若選成「僅限我自己」會導致 CORS 攔截）。</li>
+                        <li>點擊「部署」，授予存取權限並複製獲得的新 <code>/exec</code> 網址。</li>
+                    </ol>
+                </div>
+
+                <div class="bg-emerald-50 p-3 rounded-xl border border-emerald-200 text-xs text-emerald-800">
+                    <strong>✨ 系統已啟動離線/本機備用機制：</strong><br>
+                    即使沒有網路連線或 API 尚未設定完成，登記與歸還功能依然可正常運作（資料將暫存在您目前的瀏覽器中）。
+                </div>
+            </div>
+
+            <button onclick="toggleTroubleshootModal()" class="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl transition text-sm">瞭解並關閉</button>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 bg-slate-800 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center space-x-3">
+        <span id="toastIcon"><i class="fa-solid fa-circle-check text-emerald-400"></i></span>
+        <span id="toastMsg" class="font-medium text-sm">提示訊息</span>
+    </div>
+
+    <script>
+        // --- Global State ---
+        const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbwT_LUg9JpxYYoMsDVjBg01EZk0gVj_BnS0SpbeKlQXJts9JcwEk1qqm8QcZzNtH5wgSg/exec';
+        
+        let savedUrl = localStorage.getItem('tablet_app_api_url');
+        if (!savedUrl) {
+            savedUrl = DEFAULT_API_URL;
+            localStorage.setItem('tablet_app_api_url', DEFAULT_API_URL);
+        }
+        
+        let apiUrl = savedUrl;
+        let records = JSON.parse(localStorage.getItem('tablet_app_local_records') || '[]');
+        let selectedRecordForReturn = null;
+        let currentSelectedDate = new Date();
+        let chartInstance = null;
+        let isApiOnline = false;
+
+        // --- Init ---
+        window.onload = function() {
+            document.getElementById('apiUrlInput').value = apiUrl;
+            document.getElementById('weekPicker').value = currentSelectedDate.toISOString().slice(0, 10);
+            
+            // Initial data render with cached or empty data first
+            renderData();
+            
+            // Initial fetch from cloud
+            fetchData();
+
+            // Background silent sync every 20 seconds
+            setInterval(() => {
+                if (apiUrl) fetchData(true);
+            }, 20000);
+        };
+
+        // --- Date / Week Helpers (Sunday to Saturday) ---
+        function getWeekBounds(date) {
+            const d = new Date(date);
+            const day = d.getDay(); // 0 is Sunday, 6 is Saturday
+            
+            const sunday = new Date(d);
+            sunday.setDate(d.getDate() - day);
+            sunday.setHours(0, 0, 0, 0);
+
+            const saturday = new Date(sunday);
+            saturday.setDate(sunday.getDate() + 6);
+            saturday.setHours(23, 59, 59, 999);
+
+            return { sunday, saturday };
+        }
+
+        function changeWeek(offsetWeeks) {
+            currentSelectedDate.setDate(currentSelectedDate.getDate() + (offsetWeeks * 7));
+            document.getElementById('weekPicker').value = currentSelectedDate.toISOString().slice(0, 10);
+            renderData();
+        }
+
+        function onWeekPickerChange(e) {
+            if (e.target.value) {
+                currentSelectedDate = new Date(e.target.value);
+                renderData();
+            }
+        }
+
+        function resetToCurrentWeek() {
+            currentSelectedDate = new Date();
+            document.getElementById('weekPicker').value = currentSelectedDate.toISOString().slice(0, 10);
+            renderData();
+        }
+
+        // --- UI Interactions ---
+        function switchTab(tab) {
+            const views = { borrow: 'viewBorrow', active: 'viewActive', history: 'viewHistory' };
+            const tabs = { borrow: 'tabBorrow', active: 'tabActive', history: 'tabHistory' };
+
+            Object.keys(views).forEach(key => {
+                const viewEl = document.getElementById(views[key]);
+                const tabEl = document.getElementById(tabs[key]);
+                if (key === tab) {
+                    viewEl.classList.remove('hidden');
+                    tabEl.classList.add('text-brand-600', 'bg-brand-50');
+                    tabEl.classList.remove('text-slate-500');
+                } else {
+                    viewEl.classList.add('hidden');
+                    tabEl.classList.remove('text-brand-600', 'bg-brand-50');
+                    tabEl.classList.add('text-slate-500');
+                }
+            });
+
+            if (tab === 'history') {
+                renderData();
+            }
+        }
+
+        function toggleTabletCustom() {
+            const isOther = document.querySelector('input[name="tabletPreset"]:checked').value === '其他';
+            const container = document.getElementById('customTabletContainer');
+            const input = document.getElementById('customTabletId');
+            if (isOther) {
+                container.classList.remove('hidden');
+                input.required = true;
+            } else {
+                container.classList.add('hidden');
+                input.required = false;
+            }
+        }
+
+        function toggleCustomReason() {
+            const isOther = document.querySelector('input[name="purpose"]:checked').value === '其他';
+            const container = document.getElementById('customReasonContainer');
+            const input = document.getElementById('customReason');
+            if (isOther) {
+                container.classList.remove('hidden');
+                input.required = true;
+            } else {
+                container.classList.add('hidden');
+                input.required = false;
+            }
+        }
+
+        function toggleStartTimeInput() {
+            const isManual = document.querySelector('input[name="startTimeType"]:checked').value === 'manual';
+            const container = document.getElementById('manualStartTimeContainer');
+            const input = document.getElementById('manualStartTime');
+            if (isManual) {
+                container.classList.remove('hidden');
+                input.value = getCurrentDateTimeFormatted();
+            } else {
+                container.classList.add('hidden');
+            }
+        }
+
+        function toggleEndTimeInput() {
+            const isManual = document.querySelector('input[name="endTimeType"]:checked').value === 'manual';
+            const container = document.getElementById('manualEndTimeContainer');
+            const input = document.getElementById('manualEndTime');
+            if (isManual) {
+                container.classList.remove('hidden');
+                input.value = getCurrentDateTimeFormatted();
+            } else {
+                container.classList.add('hidden');
+            }
+        }
+
+        function getCurrentDateTimeFormatted() {
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            return now.toISOString().slice(0, 16);
+        }
+
+        function formatDisplayTime(timeStr) {
+            if (!timeStr) return '--';
+            const date = new Date(timeStr);
+            if (isNaN(date.getTime())) return timeStr;
+            return date.toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+        }
+
+        function calculateDurationMinutes(startStr, endStr) {
+            if (!startStr) return 0;
+            const start = new Date(startStr);
+            const end = endStr ? new Date(endStr) : new Date();
+            if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
+            const diffMs = end - start;
+            return Math.max(0, Math.round(diffMs / (1000 * 60)));
+        }
+
+        function formatDurationText(minutes) {
+            if (minutes <= 0) return '0 分鐘';
+            const hrs = Math.floor(minutes / 60);
+            const mins = minutes % 60;
+            if (hrs > 0) {
+                return `${hrs} 小時 ${mins} 分鐘`;
+            }
+            return `${mins} 分鐘`;
+        }
+
+        function showToast(msg, isError = false) {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMsg');
+            const toastIcon = document.getElementById('toastIcon');
+
+            toastMsg.innerText = msg;
+            toastIcon.innerHTML = isError 
+                ? '<i class="fa-solid fa-circle-xmark text-rose-400 text-lg"></i>' 
+                : '<i class="fa-solid fa-circle-check text-emerald-400 text-lg"></i>';
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+
+        function openSettingsModal() {
+            document.getElementById('settingsModal').classList.remove('hidden');
+        }
+
+        function closeSettingsModal() {
+            document.getElementById('settingsModal').classList.add('hidden');
+        }
+
+        function toggleTroubleshootModal() {
+            const modal = document.getElementById('troubleshootModal');
+            modal.classList.toggle('hidden');
+        }
+
+        function saveApiUrl() {
+            const url = document.getElementById('apiUrlInput').value.trim() || DEFAULT_API_URL;
+            apiUrl = url;
+            localStorage.setItem('tablet_app_api_url', url);
+            closeSettingsModal();
+            showToast('已更新 API 網址，連線中...');
+            fetchData();
+        }
+
+        function saveRecordsLocally() {
+            localStorage.setItem('tablet_app_local_records', JSON.stringify(records));
+        }
+
+        // --- Safe Fetch Helper to prevent uncaught TypeError: Failed to fetch ---
+        async function fetchData(silent = false) {
+            const warningEl = document.getElementById('apiWarning');
+            if (!apiUrl) {
+                warningEl.classList.remove('hidden');
+                return;
+            }
+
+            try {
+                // Fetch using GET request
+                const res = await fetch(apiUrl + '?action=get', {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+
+                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+
+                const data = await res.json();
+                if (data && data.status === 'success') {
+                    records = data.data;
+                    saveRecordsLocally();
+                    renderData();
+                    isApiOnline = true;
+                    warningEl.classList.add('hidden');
+                    if (!silent) showToast('已成功從雲端同步資料');
+                } else {
+                    throw new Error(data ? data.message : 'Invalid response payload');
+                }
+            } catch (err) {
+                console.warn('API Sync Notice:', err.message || 'Failed to fetch cloud records');
+                isApiOnline = false;
+                warningEl.classList.remove('hidden');
+                
+                // Fallback to locally stored records
+                renderData();
+                
+                if (!silent) {
+                    showToast('目前為離線模式 (仍可正常登記與歸還)', true);
+                }
+            }
+        }
+
+        function renderData() {
+            const activeListEl = document.getElementById('activeList');
+            const historyTableBody = document.getElementById('historyTableBody');
+            const activeBadge = document.getElementById('activeBadge');
+
+            const activeRecords = records.filter(r => !r.endTime || r.endTime === '');
+
+            if (activeRecords.length > 0) {
+                activeBadge.innerText = activeRecords.length;
+                activeBadge.classList.remove('hidden');
+            } else {
+                activeBadge.classList.add('hidden');
+            }
+
+            if (activeRecords.length === 0) {
+                activeListEl.innerHTML = `
+                    <div class="col-span-2 text-center py-12 bg-white rounded-2xl border border-dashed border-slate-300">
+                        <i class="fa-solid fa-circle-check text-slate-300 text-4xl mb-2"></i>
+                        <p class="text-slate-500 font-medium">目前沒有使用中的平板/裝備</p>
+                    </div>
+                `;
+            } else {
+                activeListEl.innerHTML = activeRecords.map(r => `
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
+                        <div class="space-y-1">
+                            <div class="flex items-center gap-2">
+                                <span class="font-bold text-lg text-slate-800">${r.tabletId}</span>
+                                <span class="px-2 py-0.5 text-xs font-semibold bg-brand-50 text-brand-600 rounded-md border border-brand-100">${r.purpose}</span>
+                            </div>
+                            <div class="text-sm text-slate-600"><i class="fa-regular fa-user text-xs mr-1"></i> ${r.userName}</div>
+                            <div class="text-xs text-slate-400"><i class="fa-regular fa-clock text-xs mr-1"></i> 開始：${formatDisplayTime(r.startTime)}</div>
+                        </div>
+                        <button onclick="openReturnModal('${r.id}')" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-xl text-sm shadow transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-arrow-left-long"></i> 歸還
+                        </button>
+                    </div>
+                `).join('');
+            }
+
+            // --- History & Week Filtering ---
+            const { sunday, saturday } = getWeekBounds(currentSelectedDate);
+            
+            const formatDateShort = d => `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')}`;
+            document.getElementById('selectedWeekRangeText').innerText = `顯示範圍：${formatDateShort(sunday)} (週日) ~ ${formatDateShort(saturday)} (週六)`;
+
+            // Filter Records within Selected Week
+            const weekRecords = records.filter(r => {
+                if (!r.startTime) return false;
+                const startTime = new Date(r.startTime);
+                return startTime >= sunday && startTime <= saturday;
+            });
+
+            // Calculate Daily Aggregation
+            const dailyTotals = [0, 0, 0, 0, 0, 0, 0]; // Sun -> Sat
+            const weekDaysLabels = [];
+
+            for (let i = 0; i < 7; i++) {
+                const dayDate = new Date(sunday);
+                dayDate.setDate(sunday.getDate() + i);
+                const dayName = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'][i];
+                weekDaysLabels.push(`${dayDate.getMonth()+1}/${dayDate.getDate()} (${dayName})`);
+            }
+
+            weekRecords.forEach(r => {
+                const st = new Date(r.startTime);
+                const dayIdx = st.getDay(); // 0: Sun, 6: Sat
+                const duration = calculateDurationMinutes(r.startTime, r.endTime);
+                dailyTotals[dayIdx] += duration;
+            });
+
+            const weekTotalMinutes = dailyTotals.reduce((a, b) => a + b, 0);
+            document.getElementById('weekTotalTimeText').innerText = `本週總計：${formatDurationText(weekTotalMinutes)}`;
+
+            // Render Chart
+            renderChart(weekDaysLabels, dailyTotals);
+
+            // Render Table
+            if (weekRecords.length === 0) {
+                historyTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="p-8 text-center text-slate-400 font-medium">
+                            此週次內無任何使用紀錄
+                        </td>
+                    </tr>
+                `;
+            } else {
+                historyTableBody.innerHTML = weekRecords.map(r => {
+                    const isReturned = r.endTime && r.endTime !== '';
+                    const durationMins = calculateDurationMinutes(r.startTime, r.endTime);
+                    const statusBadge = isReturned 
+                        ? `<span class="px-2.5 py-1 text-xs font-semibold bg-slate-100 text-slate-600 rounded-full">已歸還</span>`
+                        : `<span class="px-2.5 py-1 text-xs font-semibold bg-amber-100 text-amber-700 rounded-full animate-pulse">使用中</span>`;
+
+                    return `
+                        <tr class="hover:bg-slate-50 transition">
+                            <td class="p-4 font-bold text-slate-800">${r.tabletId}</td>
+                            <td class="p-4 text-slate-700">${r.userName}</td>
+                            <td class="p-4 text-slate-700">${r.purpose} ${r.customReason ? `<span class="text-xs text-slate-400">(${r.customReason})</span>` : ''}</td>
+                            <td class="p-4 text-slate-500">${formatDisplayTime(r.startTime)}</td>
+                            <td class="p-4 text-slate-500">${formatDisplayTime(r.endTime)}</td>
+                            <td class="p-4 font-semibold text-brand-600">${formatDurationText(durationMins)}</td>
+                            <td class="p-4">${statusBadge}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+
+        function renderChart(labels, data) {
+            const ctx = document.getElementById('usageChart').getContext('2d');
+            
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '總使用時間 (分鐘)',
+                        data: data,
+                        backgroundColor: 'rgba(2, 132, 199, 0.75)',
+                        borderColor: '#0284c7',
+                        borderWidth: 1.5,
+                        borderRadius: 8,
+                        hoverBackgroundColor: '#0369a1'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const mins = context.raw || 0;
+                                    return ` 使用時間: ${formatDurationText(mins)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: '使用時間 (分鐘)', color: '#64748b' },
+                            ticks: { precision: 0 }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        async function handleBorrowSubmit(e) {
+            e.preventDefault();
+
+            const btn = document.getElementById('submitBorrowBtn');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 處理中...`;
+
+            const tabletPreset = document.querySelector('input[name="tabletPreset"]:checked').value;
+            const tabletId = tabletPreset === '其他' 
+                ? document.getElementById('customTabletId').value.trim() 
+                : tabletPreset;
+
+            const userName = document.getElementById('userName').value.trim();
+            const purpose = document.querySelector('input[name="purpose"]:checked').value;
+            const customReason = purpose === '其他' ? document.getElementById('customReason').value.trim() : '';
+            
+            const startTimeType = document.querySelector('input[name="startTimeType"]:checked').value;
+            let startTime = new Date().toISOString();
+            if (startTimeType === 'manual') {
+                const manualVal = document.getElementById('manualStartTime').value;
+                if (manualVal) startTime = new Date(manualVal).toISOString();
+            }
+
+            const newRecord = {
+                id: 'ID_' + new Date().getTime(),
+                tabletId,
+                userName,
+                purpose: purpose === '其他' && customReason ? `其他 (${customReason})` : purpose,
+                customReason,
+                startTime,
+                endTime: ''
+            };
+
+            const payload = {
+                action: 'borrow',
+                ...newRecord
+            };
+
+            let success = false;
+
+            if (apiUrl) {
+                try {
+                    // Note: Content-Type text/plain avoids CORS preflight OPTIONS request
+                    const res = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'text/plain;charset=utf-8'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await res.json();
+                    if (result && result.status === 'success') {
+                        if (result.id) newRecord.id = result.id;
+                        success = true;
+                    }
+                } catch (err) {
+                    console.warn('Network post failed, saved locally:', err);
+                }
+            }
+
+            // Always store in local records array as guarantee
+            records.unshift(newRecord);
+            saveRecordsLocally();
+            renderData();
+
+            showToast(success ? '登記借出成功！' : '已存入本機（現為離線模式）');
+            document.getElementById('borrowForm').reset();
+            document.getElementById('userName').value = '蔡維宬';
+            toggleTabletCustom();
+            toggleCustomReason();
+            toggleStartTimeInput();
+
+            btn.disabled = false;
+            btn.innerHTML = `<i class="fa-solid fa-check"></i> 確認借出並登記`;
+            switchTab('active');
+
+            if (apiUrl) fetchData(true);
+        }
+
+        function openReturnModal(id) {
+            selectedRecordForReturn = records.find(r => r.id === id);
+            if (!selectedRecordForReturn) return;
+
+            document.getElementById('returnModalSubtitle').innerText = `裝備名稱：${selectedRecordForReturn.tabletId}`;
+            document.getElementById('returnModalBorrower').innerText = selectedRecordForReturn.userName;
+            document.getElementById('returnModalStartTime').innerText = formatDisplayTime(selectedRecordForReturn.startTime);
+
+            document.getElementById('returnModal').classList.remove('hidden');
+        }
+
+        function closeReturnModal() {
+            document.getElementById('returnModal').classList.add('hidden');
+            selectedRecordForReturn = null;
+        }
+
+        async function confirmReturn() {
+            if (!selectedRecordForReturn) return;
+
+            const btn = document.getElementById('confirmReturnBtn');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 歸還中...`;
+
+            const endTimeType = document.querySelector('input[name="endTimeType"]:checked').value;
+            let endTime = new Date().toISOString();
+            if (endTimeType === 'manual') {
+                const manualVal = document.getElementById('manualEndTime').value;
+                if (manualVal) endTime = new Date(manualVal).toISOString();
+            }
+
+            let success = false;
+
+            if (apiUrl) {
+                const payload = {
+                    action: 'return',
+                    id: selectedRecordForReturn.id,
+                    endTime
+                };
+
+                try {
+                    const res = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'text/plain;charset=utf-8'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await res.json();
+                    if (result && result.status === 'success') {
+                        success = true;
+                    }
+                } catch (err) {
+                    console.warn('Network return failed, saved locally:', err);
+                }
+            }
+
+            // Always update local status
+            selectedRecordForReturn.endTime = endTime;
+            saveRecordsLocally();
+            renderData();
+
+            showToast(success ? '平板已順利歸還！' : '已於本機歸還（離線模式）');
+            closeReturnModal();
+
+            btn.disabled = false;
+            btn.innerHTML = `確認歸還`;
+
+            if (apiUrl) fetchData(true);
+        }
+    </script>
+</body>
+</html>
